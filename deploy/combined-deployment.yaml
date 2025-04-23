@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myra-externaldns-config
+  namespace: default
+  labels:
+    app: myra-externaldns
+data:
+  dry-run: "false"
+  log-level: "debug"
+  webhook-listen-address: ":8080"
+  ttl: "300"
+  environment: "prod"   # environment variable defines the behavior of the webhook and controls private IPs handling
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: myra-externaldns
+  namespace: default
+  labels:
+    app: myra-externaldns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: myra-externaldns
+  labels:
+    app: myra-externaldns
+rules:
+- apiGroups: [""]
+  resources: ["services","endpoints","pods"]
+  verbs: ["get","watch","list"]
+- apiGroups: ["extensions","networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get","watch","list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: myra-externaldns-viewer
+  labels:
+    app: myra-externaldns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: myra-externaldns
+subjects:
+- kind: ServiceAccount
+  name: myra-externaldns
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myra-externaldns
+  namespace: default
+  labels:
+    app: myra-externaldns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myra-externaldns
+  template:
+    metadata:
+      labels:
+        app: myra-externaldns
+    spec:
+      serviceAccountName: myra-externaldns
+      containers:
+      - name: myra-webhook
+        image: myra-webhook:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+          - name: ENV
+            valueFrom:
+              configMapKeyRef:
+                name: myra-externaldns-config
+                key: environment
+          - name: MYRASEC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: myra-webhook-secrets
+                key: myrasec-api-key
+          - name: MYRASEC_API_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: myra-webhook-secrets
+                key: myrasec-api-secret
+          - name: DOMAIN_FILTER
+            valueFrom:
+              secretKeyRef:
+                name: myra-webhook-secrets
+                key: domain-filter
+
+          - name: WEBHOOK_LISTEN_ADDRESS
+            valueFrom:
+              configMapKeyRef:
+                name: myra-externaldns-config
+                key: webhook-listen-address
+          - name: DRY_RUN
+            valueFrom:
+              configMapKeyRef:
+                name: myra-externaldns-config
+                key: dry-run
+          - name: LOG_LEVEL
+            valueFrom:
+              configMapKeyRef:
+                name: myra-externaldns-config
+                key: log-level
+          - name: TTL
+            valueFrom:
+              configMapKeyRef:
+                name: myra-externaldns-config
+                key: ttl
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      - name: external-dns
+        image: k8s.gcr.io/external-dns/external-dns:v0.15.1
+        args:
+        - --source=ingress
+        - --source=service
+        - --domain-filter=dummydomainforkubes.de #${DOMAIN_FILTER}
+        - --provider=webhook
+        - --webhook-provider-url=http://localhost:8080
+        - --policy=sync # sync for allowing deletes
+        - --txt-owner-id=external-dns
+        - --interval=15s
+        - --log-level=debug
+        - --registry=txt
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 200m
+            memory: 200Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myra-externaldns
+  namespace: default
+  labels:
+    app: myra-externaldns
+spec:
+  selector:
+    app: myra-externaldns
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
