@@ -86,7 +86,7 @@ func (p *MyraSecDNSProvider) GetDomains() ([]myrasec.Domain, error) {
 	}
 
 	p.logger.Debug("Retrieving domains from MyraSec API")
-	domains, err := p.apiClient.ListDomains(nil)
+	domains, err := p.apiClient.ListDomains(map[string]string{ "pageSize": "9999" })
 	if err != nil {
 		p.logger.Error("Failed to list domains", zap.Error(err))
 		return nil, fmt.Errorf("failed to list domains: %w", err)
