@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/netguru/myra-external-dns-webhook/internal/myrasecprovider"
 	"github.com/netguru/myra-external-dns-webhook/pkg/api"
-	"strconv"
 
 	"log"
 	"os"
@@ -223,6 +224,9 @@ func initConfig() {
 		if ttlvar > 0 {
 			ttl = ttlvar
 		}
+	} else {
+		ttl = 300
+		log.Printf("No TTL configured, using default: %d", ttl)
 	}
 	if os.Getenv("ENV") != "" {
 		log.Printf("Enviroment: %s", os.Getenv("ENV"))
