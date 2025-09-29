@@ -219,15 +219,15 @@ func initConfig() {
 	if os.Getenv("DOMAIN_FILTER") != "" && len(domainFilter) == 0 {
 		domainFilter = strings.Split(os.Getenv("DOMAIN_FILTER"), ",")
 	}
+
+	ttl = 300
 	if os.Getenv("TTL") != "" {
 		ttlvar, _ := strconv.Atoi(os.Getenv("TTL"))
 		if ttlvar > 0 {
 			ttl = ttlvar
 		}
-	} else {
-		ttl = 300
-		log.Printf("No TTL configured, using default: %d", ttl)
 	}
+
 	if os.Getenv("ENV") != "" {
 		log.Printf("Enviroment: %s", os.Getenv("ENV"))
 	}
