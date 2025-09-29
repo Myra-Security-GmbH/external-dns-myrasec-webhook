@@ -23,15 +23,15 @@ import (
 )
 
 var (
-	listenAddress    	string
-	myraSecAPIKey    	string
-	myraSecAPISecret 	string
-	baseURL          	string
-	dryRun           	bool
-	logLevel         	string
-	domainFilter     	[]string
-	ttl              	int
-	disableProtection	bool
+	listenAddress     string
+	myraSecAPIKey     string
+	myraSecAPISecret  string
+	baseURL           string
+	dryRun            bool
+	logLevel          string
+	domainFilter      []string
+	ttl               int
+	disableProtection bool
 )
 
 var rootCmd = &cobra.Command{
@@ -69,13 +69,13 @@ var rootCmd = &cobra.Command{
 		myraSecProvider, err := myrasecprovider.NewMyraSecDNSProvider(
 			logger.With(zap.String("component", "myrasecprovider")),
 			myrasecprovider.Config{
-				APIKey:       		myraSecAPIKey,
-				APISecret:    		myraSecAPISecret,
-				BaseURL:      		baseURL,
-				DomainFilter: 		domainFilter,
-				DryRun:       		dryRun,
-				TTL:          		ttl,
-				DisableProtection: 	disableProtection,
+				APIKey:            myraSecAPIKey,
+				APISecret:         myraSecAPISecret,
+				BaseURL:           baseURL,
+				DomainFilter:      domainFilter,
+				DryRun:            dryRun,
+				TTL:               ttl,
+				DisableProtection: disableProtection,
 			},
 		)
 		if err != nil {

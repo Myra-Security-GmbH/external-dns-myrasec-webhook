@@ -29,16 +29,16 @@ type MyraSecAPIClient interface {
 // MyraSecDNSProvider is the implementation of the MyraSec DNS provider
 type MyraSecDNSProvider struct {
 	provider.BaseProvider
-	apiClient     		MyraSecAPIClient
-	logger        		*zap.Logger
-	domainFilter  		endpoint.DomainFilter
-	domainId      		string
-	domainName    		string
-	dryRun        		bool
-	cachedDomains 		[]myrasec.Domain
-	ttl           		int
-	owner         		string
-	disableProtection   bool
+	apiClient         MyraSecAPIClient
+	logger            *zap.Logger
+	domainFilter      endpoint.DomainFilter
+	domainId          string
+	domainName        string
+	dryRun            bool
+	cachedDomains     []myrasec.Domain
+	ttl               int
+	owner             string
+	disableProtection bool
 }
 
 // NewMyraSecDNSProvider initializes a new MyraSec DNS provider.
@@ -65,14 +65,14 @@ func NewMyraSecDNSProvider(logger *zap.Logger, providerConfig Config) (*MyraSecD
 	api.Language = "en"
 
 	provider := &MyraSecDNSProvider{
-		BaseProvider: 		provider.BaseProvider{},
-		apiClient:    		api,
-		logger:       		logger,
-		domainFilter: 		providerConfig.DomainFilter,
-		dryRun:       		providerConfig.DryRun,
-		ttl:          		providerConfig.TTL,
-		owner:        		defaultOwnerTag,
-		disableProtection: 	providerConfig.DisableProtection,
+		BaseProvider:      provider.BaseProvider{},
+		apiClient:         api,
+		logger:            logger,
+		domainFilter:      providerConfig.DomainFilter,
+		dryRun:            providerConfig.DryRun,
+		ttl:               providerConfig.TTL,
+		owner:             defaultOwnerTag,
+		disableProtection: providerConfig.DisableProtection,
 	}
 
 	return provider, nil
