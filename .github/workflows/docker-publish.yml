@@ -34,7 +34,9 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE_TAG=${GITHUB_REF#refs/tags/}
-          IMAGE_NAME=ghcr.io/${{ github.repository }}:$IMAGE_TAG
+          # Repository name must be lowercase
+          IMAGE_REPO=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME=$IMAGE_REPO:$IMAGE_TAG
 
           docker buildx build \
             --tag $IMAGE_NAME \
