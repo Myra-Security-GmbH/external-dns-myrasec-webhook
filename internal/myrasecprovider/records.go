@@ -220,8 +220,9 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 		// 1. Update TTLs and modified values
 		for val, rec := range current {
 			if _, shouldExist := desired[val]; shouldExist {
-				if rec.TTL != ttl {
+				if rec.TTL != ttl || rec.Active != !p.disableProtection {
 					rec.TTL = ttl
+					rec.Active = !p.disableProtection
 					domainID, err := strconv.Atoi(p.domainId)
 					if err != nil {
 						p.logger.Error("Invalid domain ID", zap.Error(err))
@@ -344,7 +345,7 @@ func (p *MyraSecDNSProvider) createDNSRecord(dnsName, recordType, value string, 
 		Name:       dnsName,
 		Value:      formattedValue,
 		RecordType: recordType,
-		Active:     true,
+		Active:     !p.disableProtection,
 		Enabled:    true,
 		TTL:        ttl,
 	}

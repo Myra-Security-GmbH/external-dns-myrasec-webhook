@@ -6,20 +6,24 @@ Built on the official [MyraSec Go Client](https://github.com/Myra-Security-GmbH/
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
-- [Requirements](#requirements)
-- [Installation and Configuration](#installation-and-configuration)
-  - [Environment Variables](#environment-variables)
-  - [Command Line Arguments](#command-line-arguments)
-- [API Endpoints](#api-endpoints)
-- [Project Structure](#project-structure)
-- [Kubernetes Deployment](#kubernetes-deployment)
-  - [ExternalDNS Configuration](#externaldns-configuration)
-  - [Combined Deployment](#combined-deployment)
-- [Development and Testing](#development-and-testing)
-  - [Building from Source](#building-from-source)
-  - [Building the Docker Image](#building-the-docker-image)
-  - [Testing the Webhook](#testing-the-webhook)
+- [MyraSec External DNS Webhook](#myrasec-external-dns-webhook)
+  - [Table of Contents](#table-of-contents)
+  - [Architecture Overview](#architecture-overview)
+  - [Requirements](#requirements)
+  - [Installation and Configuration](#installation-and-configuration)
+    - [Environment Variables](#environment-variables)
+    - [Command Line Arguments](#command-line-arguments)
+  - [API Endpoints](#api-endpoints)
+  - [Project Structure](#project-structure)
+  - [Kubernetes Deployment](#kubernetes-deployment)
+    - [ExternalDNS Configuration](#externaldns-configuration)
+    - [Combined Deployment](#combined-deployment)
+  - [Production Deployment Preparation](#production-deployment-preparation)
+  - [Pre-Deployment Checklist](#pre-deployment-checklist)
+  - [Development and Testing](#development-and-testing)
+    - [Building from Source](#building-from-source)
+    - [Building the Docker Image](#building-the-docker-image)
+    - [Testing the Webhook](#testing-the-webhook)
 
 ## Architecture Overview
 
@@ -57,16 +61,17 @@ The webhook is configured using environment variables:
 
 ```sh
 # Required environment variables
-MYRASEC_API_KEY=              # MyraSec API Key
-MYRASEC_API_SECRET=           # MyraSec API Secret
-DOMAIN_FILTER=                # Comma-separated list of domains to manage (e.g., example.com,example.org)
+MYRASEC_API_KEY=                  # MyraSec API Key
+MYRASEC_API_SECRET=               # MyraSec API Secret
+DOMAIN_FILTER=                    # Comma-separated list of domains to manage (e.g., example.com,example.org)
 
 # Optional environment variables
-WEBHOOK_LISTEN_ADDRESS=:8080  # Address and port to listen on (default :8080)
+WEBHOOK_LISTEN_ADDRESS=:8080      # Address and port to listen on (default :8080)
 WEBHOOK_LISTEN_ADDRESS_PORT=8080  # Alternative way to specify just the port
-LOG_LEVEL=info                # Logging level (debug, info, warn, error)
-DRY_RUN=false                 # If true, no actual changes will be made to DNS records
-TTL=300                       # Default TTL for DNS records (in seconds)
+LOG_LEVEL=info                    # Logging level (debug, info, warn, error)
+DRY_RUN=false                     # If true, no actual changes will be made to DNS records
+DISABLE_PROTECTION=false          # If true, Myra protection would be disabled for DNS records
+TTL=300                           # Default TTL for DNS records (in seconds)
 ```
 
 ### Command Line Arguments
@@ -80,6 +85,7 @@ The webhook can also be configured using command line arguments:
   --myrasec-api-secret=YOUR_API_SECRET \
   --domain-filter=example.com,example.org \
   --dry-run=false \
+  --disable-protection=false \
   --log-level=info \
   --ttl=300
 ```
@@ -88,13 +94,13 @@ The webhook can also be configured using command line arguments:
 
 The webhook implements the following endpoints:
 
-| Endpoint | Method | Description |
-|----------|--------|--------------|
-| `/` or `/webhook` | GET | Returns domain filter information |
-| `/records` | GET | Lists all DNS records |
-| `/records` | POST | Applies changes to DNS records |
-| `/adjustendpoints` | POST | Processes and adjusts endpoints |
-| `/healthz` | GET | Health check endpoint |
+| Endpoint           | Method | Description                       |
+| ------------------ | ------ | --------------------------------- |
+| `/` or `/webhook`  | GET    | Returns domain filter information |
+| `/records`         | GET    | Lists all DNS records             |
+| `/records`         | POST   | Applies changes to DNS records    |
+| `/adjustendpoints` | POST   | Processes and adjusts endpoints   |
+| `/healthz`         | GET    | Health check endpoint             |
 
 ## Project Structure
 
@@ -155,17 +161,17 @@ spec:
   template:
     spec:
       containers:
-      - name: external-dns
-        image: k8s.gcr.io/external-dns/external-dns:v0.15.1
-        args:
-        - --source=service
-        - --source=ingress
-        - --provider=webhook
-        - --webhook-provider-url=http://myra-webhook-service:8080
-        - --domain-filter=example.com
-        - --policy=upsert-only # sync for allowing deletes and updates, upsert-only for blocking deletes
-        - --txt-owner-id=external-dns
-        - --registry=txt
+        - name: external-dns
+          image: k8s.gcr.io/external-dns/external-dns:v0.15.1
+          args:
+            - --source=service
+            - --source=ingress
+            - --provider=webhook
+            - --webhook-provider-url=http://myra-webhook-service:8080
+            - --domain-filter=example.com
+            - --policy=upsert-only # sync for allowing deletes and updates, upsert-only for blocking deletes
+            - --txt-owner-id=external-dns
+            - --registry=txt
 ```
 
 ### Combined Deployment
@@ -182,12 +188,12 @@ spec:
   template:
     spec:
       containers:
-      - name: myra-webhook
-        image: myra-webhook:latest
-        # Configuration omitted for brevity
-      - name: external-dns
-        image: k8s.gcr.io/external-dns/external-dns:v0.15.1
-        # Configuration omitted for brevity
+        - name: myra-webhook
+          image: myra-webhook:latest
+          # Configuration omitted for brevity
+        - name: external-dns
+          image: k8s.gcr.io/external-dns/external-dns:v0.15.1
+          # Configuration omitted for brevity
 ```
 
 This deployment also includes:
@@ -202,11 +208,13 @@ This deployment also includes:
 Before deploying to production, ensure you replace all placeholder values in the deployment files:
 
 1. In `deploy/myra-webhook-secrets.yaml`:
+
    - Replace the API key with your actual MyraSec API key
    - Replace the API secret with your actual MyraSec API secret
    - Replace the domain filter with your actual domain
 
 2. In `deploy/combined-deployment.yaml`:
+
    - Update the `--domain-filter` argument with your actual domain
    - Verify resource limits are appropriate for your environment
 
@@ -297,16 +305,16 @@ metadata:
     external-dns.alpha.kubernetes.io/hostname: test.example.com
 spec:
   rules:
-  - host: test.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: test-service
-            port:
-              number: 80
+    - host: test.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: test-service
+                port:
+                  number: 80
 ```
 
 This will trigger ExternalDNS to create a DNS record for `test.example.com` through the webhook.

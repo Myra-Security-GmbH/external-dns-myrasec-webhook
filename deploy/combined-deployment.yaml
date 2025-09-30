@@ -7,6 +7,7 @@ metadata:
     app: myra-externaldns
 data:
   dry-run: "false"
+  disable-protection: "false"
   log-level: "debug"
   webhook-listen-address: ":8080"
   ttl: "300"
@@ -114,6 +115,11 @@ spec:
                 configMapKeyRef:
                   name: myra-externaldns-config
                   key: dry-run
+            - name: DISABLE_PROTECTION
+              valueFrom:
+                configMapKeyRef:
+                  name: myra-externaldns-config
+                  key: disable-protection
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:

@@ -23,14 +23,15 @@ import (
 )
 
 var (
-	listenAddress    string
-	myraSecAPIKey    string
-	myraSecAPISecret string
-	baseURL          string
-	dryRun           bool
-	logLevel         string
-	domainFilter     []string
-	ttl              int
+	listenAddress     string
+	myraSecAPIKey     string
+	myraSecAPISecret  string
+	baseURL           string
+	dryRun            bool
+	logLevel          string
+	domainFilter      []string
+	ttl               int
+	disableProtection bool
 )
 
 var rootCmd = &cobra.Command{
@@ -68,12 +69,13 @@ var rootCmd = &cobra.Command{
 		myraSecProvider, err := myrasecprovider.NewMyraSecDNSProvider(
 			logger.With(zap.String("component", "myrasecprovider")),
 			myrasecprovider.Config{
-				APIKey:       myraSecAPIKey,
-				APISecret:    myraSecAPISecret,
-				BaseURL:      baseURL,
-				DomainFilter: domainFilter,
-				DryRun:       dryRun,
-				TTL:          ttl,
+				APIKey:            myraSecAPIKey,
+				APISecret:         myraSecAPISecret,
+				BaseURL:           baseURL,
+				DomainFilter:      domainFilter,
+				DryRun:            dryRun,
+				TTL:               ttl,
+				DisableProtection: disableProtection,
 			},
 		)
 		if err != nil {
@@ -165,6 +167,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "If true, only print the changes that would be made")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "The log level to use (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringSliceVar(&domainFilter, "domain-filter", []string{}, "Filter domain names to manage")
+	rootCmd.PersistentFlags().BoolVar(&disableProtection, "disable-protection", false, "If true, Myra protection would be disabled for DNS records")
 }
 
 func initConfig() {
@@ -210,6 +213,11 @@ func initConfig() {
 	// Check for optional environment variables
 	if os.Getenv("DRY_RUN") == "true" && !dryRun {
 		dryRun = true
+	}
+
+	if os.Getenv("DISABLE_PROTECTION") == "true" && !disableProtection {
+		disableProtection = true
+		log.Printf("Myra protection is disabled")
 	}
 
 	if os.Getenv("LOG_LEVEL") != "" && logLevel == "info" {
