@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	defaultTTL      = 300
 	defaultOwnerTag = "external-dns" // Must match --txt-owner-id in ExternalDNS
 )
 
