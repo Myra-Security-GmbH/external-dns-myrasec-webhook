@@ -243,9 +243,9 @@ envsubst < deploy/myra-webhook-secrets.yaml > deploy/myra-webhook-secrets-prod.y
 
 ## Development and Testing
 
-The project includes a Dockerfile for building the webhook container image.
+The project includes a `Dockerfile` for building the webhook container image. The image can also be pulled from Github Container Registry under [external-dns-myrasec-webhook](https://github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkgs/container/external-dns-myrasec-webhook).
 Scripts for building and testing the webhook are provided in the `scripts/` directory.
-nginx-demo.yaml and nginx-ingress-controller.yaml are provided for testing the webhook.
+`nginx-demo.yaml` and `nginx-ingress-controller.yaml` are provided for testing the webhook.
 
 ### Building from Source
 
