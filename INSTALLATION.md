@@ -12,17 +12,32 @@ This guide provides quick instructions for setting up and testing the Myra Exter
 
 ## Quick Installation
 
-### 1. Build and Push the Docker Image
+### 1. Get the Docker Image
+
+#### Pull from container registry
+
+The image is published with each version to Github Container Registry under [external-dns-myrasec-webhook](https://github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkgs/container/external-dns-myrasec-webhook).
+
+```bash
+# Pull the image
+docker pull ghcr.io/myra-security-gmbh/external-dns-myrasec-webhook:<VERSION>
+
+# For the sake of this tutorial, tag the image with "myra-webhook:latest"
+docker image tag ghcr.io/myra-security-gmbh/external-dns-myrasec-webhook:<VERSION> myra-webhook:latest
+
+```
+
+#### Build and Push the Docker Image
 
 ```bash
 # From the project root
 docker build -t myra-webhook:latest .
 
 # Tag the image for your container registry
-docker tag myra-webhook:latest YOUR_REGISTRY/myra-webhook:latest
+docker tag myra-webhook:latest <YOUR_REGISTRY>/myra-webhook:latest
 
 # Push to your container registry
-docker push YOUR_REGISTRY/myra-webhook:latest
+docker push <YOUR_REGISTRY>/myra-webhook:latest
 ```
 
 > **Important**: The image must be pushed to a container registry accessible by your Kubernetes cluster. Update the image reference in the deployment YAML file to match your registry path.
