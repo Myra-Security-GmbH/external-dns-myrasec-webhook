@@ -3,7 +3,7 @@ module github.com/netguru/myra-external-dns-webhook
 go 1.24.1
 
 require (
-	github.com/Myra-Security-GmbH/myrasec-go/v2 v2.39.0
+	github.com/Myra-Security-GmbH/myrasec-go/v2 v2.47.0
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.9.1
@@ -84,7 +84,7 @@ require (
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/term v0.29.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
-	golang.org/x/time v0.11.0 // indirect
+	golang.org/x/time v0.13.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
