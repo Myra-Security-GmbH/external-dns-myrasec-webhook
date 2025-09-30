@@ -12,6 +12,7 @@ data:
   webhook-listen-address: ":8080"
   ttl: "300"
   environment: "prod" # environment variable defines the behavior of the webhook and controls private IPs handling
+  base-url: "https://apiv2.myracloud.com/%s" # Used for testing, no need to define
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -83,6 +84,11 @@ spec:
                 configMapKeyRef:
                   name: myra-externaldns-config
                   key: environment
+            - name: MYRASEC_GO_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: myra-externaldns-config
+                  key: base-url
             - name: MYRASEC_API_KEY
               valueFrom:
                 secretKeyRef:
