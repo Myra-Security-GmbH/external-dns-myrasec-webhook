@@ -220,7 +220,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 		// 1. Update TTLs and modified values
 		for val, rec := range current {
 			if _, shouldExist := desired[val]; shouldExist {
-				if rec.TTL != ttl || rec.Active != !p.disableProtection || rec.Name != dnsName {
+				if rec.TTL != ttl || rec.Active == p.disableProtection || rec.Name != dnsName {
 					rec.TTL = ttl
 					rec.Active = !p.disableProtection
 					rec.Name = dnsName
