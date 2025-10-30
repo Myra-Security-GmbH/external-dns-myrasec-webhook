@@ -140,7 +140,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 			err := p.createDNSRecord(dnsName, ep.RecordType, val, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create DNS record", zap.String("dnsName", dnsName), zap.String("type", ep.RecordType), zap.String("value", val), zap.Error(err))
-				return err
+				continue
 			}
 		}
 
@@ -154,7 +154,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 			err := p.createDNSRecord(dnsName, endpoint.RecordTypeTXT, txtVal, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create TXT ownership record", zap.String("dnsName", dnsName), zap.String("value", txtVal), zap.Error(err))
-				return err
+				continue
 			}
 		}
 	}
@@ -231,7 +231,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 					}
 					if _, err := p.apiClient.UpdateDNSRecord(rec, domainID); err != nil {
 						p.logger.Error("Failed to update record", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
-						return err
+						continue
 					}
 					p.logger.Info("Updated record", zap.String("dnsName", dnsName), zap.String("value", val), zap.Int("ttl", ttl), zap.Bool("active", !p.disableProtection))
 				}
@@ -244,7 +244,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 						zap.String("type", rec.RecordType),
 						zap.String("value", rec.Value),
 						zap.Error(err))
-					return err
+					continue
 				}
 				p.logger.Info("Deleted record", zap.String("dnsName", dnsName), zap.String("type", rec.RecordType), zap.String("value", val))
 			}
@@ -254,7 +254,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 		for val := range desired {
 			if err := p.createDNSRecord(dnsName, newEp.RecordType, val, ttl); err != nil {
 				p.logger.Error("Failed to create record during update", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
-				return err
+				continue
 			}
 			p.logger.Info("Created missing record during update", zap.String("dnsName", dnsName), zap.String("value", val))
 		}
@@ -327,7 +327,7 @@ func (p *MyraSecDNSProvider) processDeleteActions(endpoints []*endpoint.Endpoint
 					zap.String("type", record.RecordType),
 					zap.String("value", record.Value),
 					zap.Error(err))
-				return err
+				continue
 			}
 		}
 	}
