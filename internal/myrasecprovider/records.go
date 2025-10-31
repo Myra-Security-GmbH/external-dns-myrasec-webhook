@@ -140,7 +140,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 			err := p.createDNSRecord(dnsName, ep.RecordType, val, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create DNS record", zap.String("dnsName", dnsName), zap.String("type", ep.RecordType), zap.String("value", val), zap.Error(err))
-				return err
+				continue
 			}
 		}
 
@@ -154,7 +154,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 			err := p.createDNSRecord(dnsName, endpoint.RecordTypeTXT, txtVal, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create TXT ownership record", zap.String("dnsName", dnsName), zap.String("value", txtVal), zap.Error(err))
-				return err
+				continue
 			}
 		}
 	}
@@ -220,21 +220,33 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 		// 1. Update TTLs and modified values
 		for val, rec := range current {
 			if _, shouldExist := desired[val]; shouldExist {
-				if rec.TTL != ttl || rec.Active != !p.disableProtection {
+				if rec.TTL != ttl || rec.Active == p.disableProtection || rec.Name != dnsName {
 					rec.TTL = ttl
 					rec.Active = !p.disableProtection
+					rec.Name = dnsName
 					domainID, err := strconv.Atoi(p.domainId)
 					if err != nil {
 						p.logger.Error("Invalid domain ID", zap.Error(err))
 						continue
 					}
 					if _, err := p.apiClient.UpdateDNSRecord(rec, domainID); err != nil {
-						p.logger.Error("Failed to update record TTL", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
-						return err
+						p.logger.Error("Failed to update record", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
+						continue
 					}
-					p.logger.Info("Updated record TTL", zap.String("dnsName", dnsName), zap.String("value", val), zap.Int("ttl", ttl))
+					p.logger.Info("Updated record", zap.String("dnsName", dnsName), zap.String("value", val), zap.Int("ttl", ttl), zap.Bool("active", !p.disableProtection))
 				}
-				delete(desired, val) // Mark as processed
+				delete(desired, val) // Mark as processed so it's not created again later
+			} else {
+				err := p.deleteDNSRecord(rec)
+				if err != nil {
+					p.logger.Error("Failed to delete record during update",
+						zap.String("dnsName", rec.Name),
+						zap.String("type", rec.RecordType),
+						zap.String("value", rec.Value),
+						zap.Error(err))
+					continue
+				}
+				p.logger.Info("Deleted record", zap.String("dnsName", dnsName), zap.String("type", rec.RecordType), zap.String("value", val))
 			}
 		}
 
@@ -242,7 +254,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 		for val := range desired {
 			if err := p.createDNSRecord(dnsName, newEp.RecordType, val, ttl); err != nil {
 				p.logger.Error("Failed to create record during update", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
-				return err
+				continue
 			}
 			p.logger.Info("Created missing record during update", zap.String("dnsName", dnsName), zap.String("value", val))
 		}
@@ -308,25 +320,15 @@ func (p *MyraSecDNSProvider) processDeleteActions(endpoints []*endpoint.Endpoint
 				continue
 			}
 
-			domainID, err := strconv.Atoi(p.domainId)
-			if err != nil {
-				p.logger.Error("Invalid domain ID", zap.Error(err))
-				continue
-			}
-			_, err = p.apiClient.DeleteDNSRecord(&record, domainID)
+			err := p.deleteDNSRecord(&record)
 			if err != nil {
 				p.logger.Error("Failed to delete DNS record",
-					zap.String("dnsName", dnsName),
+					zap.String("dnsName", record.Name),
 					zap.String("type", record.RecordType),
 					zap.String("value", record.Value),
 					zap.Error(err))
 				continue
 			}
-
-			p.logger.Info("Deleted DNS record",
-				zap.String("dnsName", dnsName),
-				zap.String("type", record.RecordType),
-				zap.String("value", record.Value))
 		}
 	}
 
@@ -393,6 +395,31 @@ func (p *MyraSecDNSProvider) createDNSRecord(dnsName, recordType, value string, 
 		zap.String("type", record.RecordType),
 		zap.String("value", record.Value),
 		zap.Int("ttl", record.TTL))
+	return nil
+}
+
+// deleteDNSRecord is the underlying method used by processDeleteActions or processUpdateActions.
+func (p *MyraSecDNSProvider) deleteDNSRecord(record *myrasec.DNSRecord) error {
+	domainID, err := strconv.Atoi(p.domainId)
+	if err != nil {
+		p.logger.Error("Invalid domain ID", zap.Error(err))
+		return nil
+	}
+
+	_, err = p.apiClient.DeleteDNSRecord(record, domainID)
+	if err != nil {
+		p.logger.Error("Failed to delete DNS record",
+			zap.String("dnsName", record.Name),
+			zap.String("type", record.RecordType),
+			zap.String("value", record.Value),
+			zap.Error(err))
+		return err
+	}
+
+	p.logger.Info("Deleted DNS record",
+		zap.String("dnsName", record.Name),
+		zap.String("type", record.RecordType),
+		zap.String("value", record.Value))
 	return nil
 }
 
