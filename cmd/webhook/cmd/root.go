@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/netguru/myra-external-dns-webhook/internal/myrasecprovider"
-	"github.com/netguru/myra-external-dns-webhook/pkg/api"
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/internal/myrasecprovider"
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/api"
 
 	"log"
 	"os"

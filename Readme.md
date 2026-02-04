@@ -251,7 +251,7 @@ Scripts for building and testing the webhook are provided in the `scripts/` dire
 
 ```sh
 # Clone the repository
-git clone https://github.com/netguru/myra-external-dns-webhook.git
+git clone https://github.com/Myra-Security-GmbH/external-dns-myrasec-webhook.git
 cd myra-external-dns-webhook
 
 # Build the application
