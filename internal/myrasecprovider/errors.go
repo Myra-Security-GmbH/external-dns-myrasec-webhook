@@ -1,7 +1,7 @@
 package myrasecprovider
 
 import (
-	"github.com/netguru/myra-external-dns-webhook/pkg/errors"
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/errors"
 )
 
 var (

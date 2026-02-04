@@ -2,12 +2,13 @@ package api
 
 import (
 	"encoding/json"
+
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
 
-	"github.com/netguru/myra-external-dns-webhook/pkg/errors"
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/errors"
 )
 
 func (w webhook) ApplyChanges(ctx *fiber.Ctx) error {

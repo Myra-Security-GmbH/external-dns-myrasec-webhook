@@ -1,4 +1,4 @@
-module github.com/netguru/myra-external-dns-webhook
+module github.com/Myra-Security-GmbH/external-dns-myrasec-webhook
 
 go 1.24.1
 

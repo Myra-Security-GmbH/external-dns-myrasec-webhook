@@ -2,8 +2,9 @@ package api
 
 import (
 	"encoding/json"
+
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/errors"
 	"github.com/gofiber/fiber/v2"
-	"github.com/netguru/myra-external-dns-webhook/pkg/errors"
 	"go.uber.org/zap"
 )
 

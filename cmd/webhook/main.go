@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/netguru/myra-external-dns-webhook/cmd/webhook/cmd"
+	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/cmd/webhook/cmd"
 )
 
 func main() {
