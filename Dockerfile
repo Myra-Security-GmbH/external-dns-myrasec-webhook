@@ -1,4 +1,6 @@
-FROM golang:1.24-alpine AS builder
+# Build stage runs on the native build platform and cross-compiles for the
+# target platform, so multi-platform builds need no emulation.
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -9,26 +11,17 @@ RUN go mod download
 # Copy the rest of the source code
 COPY . .
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o webhook ./cmd/webhook
+# Cross-compile a static binary for the target platform
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o webhook ./cmd/webhook
 
-# Create a minimal production image
-FROM alpine:3.19
-
-# Install CA certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates && \
-    update-ca-certificates
-
-# Create a non-root user and group
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:b7bb25d9f7c31d2bdd1982feb4dafcaf137703c7075dbe2febb41c24212b946f
 
 WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/webhook /app/
-
-# Use the non-root user
-USER appuser
 
 # Expose the webhook port
 EXPOSE 8080
