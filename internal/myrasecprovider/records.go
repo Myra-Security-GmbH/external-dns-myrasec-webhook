@@ -13,29 +13,77 @@ import (
 	"sigs.k8s.io/external-dns/endpoint"
 )
 
+// dnsRecordsPageSize is the page size used when listing DNS records. It is a
+// variable so tests can lower it to exercise the pagination loop.
+var dnsRecordsPageSize = 1000
+
+// listAllDNSRecords retrieves every DNS record of a domain, following
+// pagination until a short page signals the end. Without explicit paging the
+// MyraSec API returns only its default page size, silently hiding records on
+// domains with more entries.
+func (p *MyraSecDNSProvider) listAllDNSRecords(domainID int) ([]myrasec.DNSRecord, error) {
+	var allRecords []myrasec.DNSRecord
+	for page := 1; ; page++ {
+		params := map[string]string{
+			myrasec.ParamPage:     strconv.Itoa(page),
+			myrasec.ParamPageSize: strconv.Itoa(dnsRecordsPageSize),
+		}
+
+		records, err := p.apiClient.ListDNSRecords(domainID, params)
+		if err != nil {
+			return nil, err
+		}
+
+		allRecords = append(allRecords, records...)
+		if len(records) < dnsRecordsPageSize {
+			return allRecords, nil
+		}
+	}
+}
+
 func (p *MyraSecDNSProvider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 	p.logger.Debug("Attempting to list domains (Records)")
 
-	selectedDomain, err := p.SelectDomain()
+	domains, err := p.SelectDomains()
 	if err != nil {
-		p.logger.Error("Failed to select domain", zap.Error(err))
+		p.logger.Error("Failed to select domains", zap.Error(err))
 		return nil, err
 	}
 
-	p.logger.Debug("Selected domain for Records method",
-		zap.String("domain_name", selectedDomain.Name),
-		zap.Int("domain_id", selectedDomain.ID))
+	var endpoints []*endpoint.Endpoint
+	totalRecords := 0
 
-	dnsRecords, err := p.apiClient.ListDNSRecords(selectedDomain.ID, nil)
-	if err != nil {
-		p.logger.Error("Failed to list DNS records",
-			zap.String("domain", selectedDomain.Name),
-			zap.Error(err))
-		return nil, fmt.Errorf("failed listing records: %w", err)
+	for _, domain := range domains {
+		p.logger.Debug("Listing DNS records for domain",
+			zap.String("domain_name", domain.Name),
+			zap.Int("domain_id", domain.ID))
+
+		dnsRecords, err := p.listAllDNSRecords(domain.ID)
+		if err != nil {
+			p.logger.Error("Failed to list DNS records",
+				zap.String("domain", domain.Name),
+				zap.Error(err))
+			return nil, fmt.Errorf("failed listing records: %w", err)
+		}
+
+		p.logger.Debug("DNS records retrieved",
+			zap.String("domain", domain.Name),
+			zap.Int("count", len(dnsRecords)))
+
+		totalRecords += len(dnsRecords)
+		endpoints = append(endpoints, p.endpointsFromRecords(dnsRecords)...)
 	}
 
-	p.logger.Debug("DNS records retrieved", zap.Int("count", len(dnsRecords)))
+	p.logger.Info("Processed DNS records",
+		zap.Int("total", totalRecords),
+		zap.Int("filtered", len(endpoints)))
 
+	return endpoints, nil
+}
+
+// endpointsFromRecords converts the raw DNS records of one domain into
+// ExternalDNS endpoints.
+func (p *MyraSecDNSProvider) endpointsFromRecords(dnsRecords []myrasec.DNSRecord) []*endpoint.Endpoint {
 	var endpoints []*endpoint.Endpoint
 	txtRecords := make(map[string]string)
 
@@ -46,7 +94,16 @@ func (p *MyraSecDNSProvider) Records(ctx context.Context) ([]*endpoint.Endpoint,
 		}
 	}
 
-	// Process non-TXT records
+	// Process records. The planner expects exactly one endpoint per
+	// (dnsName, recordType), so non-TXT records are grouped and all their
+	// values collapsed into a single endpoint's Targets. TXT records keep
+	// their per-name handling for ownership lookups.
+	type groupKey struct {
+		dnsName    string
+		recordType string
+	}
+	grouped := make(map[groupKey]*endpoint.Endpoint)
+
 	for _, r := range dnsRecords {
 		if !supportedRecordType(r.RecordType) {
 			continue
@@ -57,17 +114,47 @@ func (p *MyraSecDNSProvider) Records(ctx context.Context) ([]*endpoint.Endpoint,
 			continue
 		}
 
-		// Validate ownership for non-TXT records
-		if r.RecordType != endpoint.RecordTypeTXT {
-			txtVal, ok := txtRecords[r.Name]
-			if !ok || !isOwnedByExternalDNS(txtVal, p.owner) {
-				continue
-			}
-		} else {
+		if r.RecordType == endpoint.RecordTypeTXT {
 			// TXT records: must be owned
 			if !isOwnedByExternalDNS(r.Value, p.owner) {
 				continue
 			}
+
+			ep := endpoint.NewEndpoint(dnsName, r.RecordType, r.Value)
+			if r.TTL > 0 {
+				ep.RecordTTL = endpoint.TTL(r.TTL)
+			}
+
+			ep.Labels = map[string]string{
+				endpoint.OwnerLabelKey: p.owner,
+			}
+			if resource := extractResourceFromTXT(r.Value); resource != "" {
+				ep.Labels[endpoint.ResourceLabelKey] = resource
+			}
+
+			p.logger.Debug("Added endpoint",
+				zap.String("dnsName", ep.DNSName),
+				zap.String("recordType", ep.RecordType),
+				zap.Any("targets", ep.Targets))
+
+			endpoints = append(endpoints, ep)
+			continue
+		}
+
+		// Validate ownership for non-TXT records
+		txtVal, ok := txtRecords[r.Name]
+		if !ok || !isOwnedByExternalDNS(txtVal, p.owner) {
+			continue
+		}
+
+		key := groupKey{dnsName: dnsName, recordType: r.RecordType}
+		if ep, exists := grouped[key]; exists {
+			ep.Targets = append(ep.Targets, r.Value)
+			p.logger.Debug("Added target to endpoint",
+				zap.String("dnsName", ep.DNSName),
+				zap.String("recordType", ep.RecordType),
+				zap.Any("targets", ep.Targets))
+			continue
 		}
 
 		ep := endpoint.NewEndpoint(dnsName, r.RecordType, r.Value)
@@ -78,8 +165,6 @@ func (p *MyraSecDNSProvider) Records(ctx context.Context) ([]*endpoint.Endpoint,
 		ep.Labels = map[string]string{
 			endpoint.OwnerLabelKey: p.owner,
 		}
-
-		// Add resource label if present
 		if resource := extractResourceFromTXT(r.Value); resource != "" {
 			ep.Labels[endpoint.ResourceLabelKey] = resource
 		}
@@ -89,14 +174,11 @@ func (p *MyraSecDNSProvider) Records(ctx context.Context) ([]*endpoint.Endpoint,
 			zap.String("recordType", ep.RecordType),
 			zap.Any("targets", ep.Targets))
 
+		grouped[key] = ep
 		endpoints = append(endpoints, ep)
 	}
 
-	p.logger.Info("Processed DNS records",
-		zap.Int("total", len(dnsRecords)),
-		zap.Int("filtered", len(endpoints)))
-
-	return endpoints, nil
+	return endpoints
 }
 
 func extractResourceFromTXT(txtValue string) string {
@@ -108,10 +190,10 @@ func extractResourceFromTXT(txtValue string) string {
 	}
 	return ""
 }
-func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint) error {
+func (p *MyraSecDNSProvider) processCreateActions(domain myrasec.Domain, endpoints []*endpoint.Endpoint) error {
 	for _, ep := range endpoints {
 
-		dnsName := p.ensureFullDNSName(stripTrailingDot(ep.DNSName))
+		dnsName := ensureFullDNSName(stripTrailingDot(ep.DNSName), domain.Name)
 
 		// If skipping private IP in production, handle here too:
 		if isProduction() && isPrivateEndpoint(ep) {
@@ -137,7 +219,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 			val := p.formatRecordValue(target, ep.RecordType)
 
 			// Create record
-			err := p.createDNSRecord(dnsName, ep.RecordType, val, ttl)
+			err := p.createDNSRecord(domain, dnsName, ep.RecordType, val, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create DNS record", zap.String("dnsName", dnsName), zap.String("type", ep.RecordType), zap.String("value", val), zap.Error(err))
 				continue
@@ -151,7 +233,7 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 				txtVal += fmt.Sprintf(",external-dns/resource=%s", resource)
 			}
 
-			err := p.createDNSRecord(dnsName, endpoint.RecordTypeTXT, txtVal, ttl)
+			err := p.createDNSRecord(domain, dnsName, endpoint.RecordTypeTXT, txtVal, ttl)
 			if err != nil {
 				p.logger.Error("Failed to create TXT ownership record", zap.String("dnsName", dnsName), zap.String("value", txtVal), zap.Error(err))
 				continue
@@ -161,17 +243,13 @@ func (p *MyraSecDNSProvider) processCreateActions(endpoints []*endpoint.Endpoint
 	return nil
 }
 
-func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*endpoint.Endpoint) error {
+func (p *MyraSecDNSProvider) processUpdateActions(domain myrasec.Domain, oldEndpoints, newEndpoints []*endpoint.Endpoint) error {
 	if len(oldEndpoints) != len(newEndpoints) {
 		return fmt.Errorf("mismatched endpoint lists: old=%d, new=%d", len(oldEndpoints), len(newEndpoints))
 	}
 
 	// Fetch domain-wide records once
-	domainID, err := strconv.Atoi(p.domainId)
-	if err != nil {
-		return fmt.Errorf("invalid domain ID: %w", err)
-	}
-	allRecords, err := p.apiClient.ListDNSRecords(domainID, nil)
+	allRecords, err := p.listAllDNSRecords(domain.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list DNS records for update: %w", err)
 	}
@@ -186,7 +264,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 
 	for _, newEp := range newEndpoints {
 		//oldEp := oldEndpoints[i]
-		dnsName := p.ensureFullDNSName(stripTrailingDot(newEp.DNSName))
+		dnsName := ensureFullDNSName(stripTrailingDot(newEp.DNSName), domain.Name)
 
 		if isProduction() && isPrivateEndpoint(newEp) {
 			p.logger.Warn("Skipping private IP update in production", zap.String("dnsName", dnsName), zap.String("type", newEp.RecordType))
@@ -224,12 +302,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 					rec.TTL = ttl
 					rec.Active = !p.disableProtection
 					rec.Name = dnsName
-					domainID, err := strconv.Atoi(p.domainId)
-					if err != nil {
-						p.logger.Error("Invalid domain ID", zap.Error(err))
-						continue
-					}
-					if _, err := p.apiClient.UpdateDNSRecord(rec, domainID); err != nil {
+					if _, err := p.apiClient.UpdateDNSRecord(rec, domain.ID); err != nil {
 						p.logger.Error("Failed to update record", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
 						continue
 					}
@@ -237,7 +310,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 				}
 				delete(desired, val) // Mark as processed so it's not created again later
 			} else {
-				err := p.deleteDNSRecord(rec)
+				err := p.deleteDNSRecord(domain, rec)
 				if err != nil {
 					p.logger.Error("Failed to delete record during update",
 						zap.String("dnsName", rec.Name),
@@ -252,7 +325,7 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 
 		// 2. Create any missing records
 		for val := range desired {
-			if err := p.createDNSRecord(dnsName, newEp.RecordType, val, ttl); err != nil {
+			if err := p.createDNSRecord(domain, dnsName, newEp.RecordType, val, ttl); err != nil {
 				p.logger.Error("Failed to create record during update", zap.String("dnsName", dnsName), zap.String("value", val), zap.Error(err))
 				continue
 			}
@@ -261,17 +334,13 @@ func (p *MyraSecDNSProvider) processUpdateActions(oldEndpoints, newEndpoints []*
 	}
 	return nil
 }
-func (p *MyraSecDNSProvider) processDeleteActions(endpoints []*endpoint.Endpoint) error {
+func (p *MyraSecDNSProvider) processDeleteActions(domain myrasec.Domain, endpoints []*endpoint.Endpoint) error {
 	if len(endpoints) == 0 {
 		return nil
 	}
 
 	// Fetch all records for the domain once
-	domainID, err := strconv.Atoi(p.domainId)
-	if err != nil {
-		return fmt.Errorf("invalid domain ID: %w", err)
-	}
-	allRecords, err := p.apiClient.ListDNSRecords(domainID, nil)
+	allRecords, err := p.listAllDNSRecords(domain.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list DNS records for deletion: %w", err)
 	}
@@ -285,7 +354,7 @@ func (p *MyraSecDNSProvider) processDeleteActions(endpoints []*endpoint.Endpoint
 	}
 
 	for _, ep := range endpoints {
-		dnsName := p.ensureFullDNSName(stripTrailingDot(ep.DNSName))
+		dnsName := ensureFullDNSName(stripTrailingDot(ep.DNSName), domain.Name)
 
 		if isProduction() && isPrivateEndpoint(ep) {
 			p.logger.Warn("Skipping deletion of private IP in production",
@@ -320,7 +389,7 @@ func (p *MyraSecDNSProvider) processDeleteActions(endpoints []*endpoint.Endpoint
 				continue
 			}
 
-			err := p.deleteDNSRecord(&record)
+			err := p.deleteDNSRecord(domain, &record)
 			if err != nil {
 				p.logger.Error("Failed to delete DNS record",
 					zap.String("dnsName", record.Name),
@@ -341,7 +410,7 @@ func isOwnedByExternalDNS(txtValue, owner string) bool {
 }
 
 // createDNSRecord is the underlying method used by processCreateActions or processUpdateActions.
-func (p *MyraSecDNSProvider) createDNSRecord(dnsName, recordType, value string, ttl int) error {
+func (p *MyraSecDNSProvider) createDNSRecord(domain myrasec.Domain, dnsName, recordType, value string, ttl int) error {
 	formattedValue := p.formatRecordValue(value, recordType)
 	record := &myrasec.DNSRecord{
 		Name:       dnsName,
@@ -352,11 +421,7 @@ func (p *MyraSecDNSProvider) createDNSRecord(dnsName, recordType, value string, 
 		TTL:        ttl,
 	}
 
-	domainID, err := strconv.Atoi(p.domainId)
-	if err != nil {
-		return fmt.Errorf("invalid domain ID: %w", err)
-	}
-	_, err = p.apiClient.CreateDNSRecord(record, domainID)
+	_, err := p.apiClient.CreateDNSRecord(record, domain.ID)
 	if err != nil {
 		// Duplicate record
 		if strings.Contains(err.Error(), "This value is already used") {
@@ -399,14 +464,8 @@ func (p *MyraSecDNSProvider) createDNSRecord(dnsName, recordType, value string, 
 }
 
 // deleteDNSRecord is the underlying method used by processDeleteActions or processUpdateActions.
-func (p *MyraSecDNSProvider) deleteDNSRecord(record *myrasec.DNSRecord) error {
-	domainID, err := strconv.Atoi(p.domainId)
-	if err != nil {
-		p.logger.Error("Invalid domain ID", zap.Error(err))
-		return nil
-	}
-
-	_, err = p.apiClient.DeleteDNSRecord(record, domainID)
+func (p *MyraSecDNSProvider) deleteDNSRecord(domain myrasec.Domain, record *myrasec.DNSRecord) error {
+	_, err := p.apiClient.DeleteDNSRecord(record, domain.ID)
 	if err != nil {
 		p.logger.Error("Failed to delete DNS record",
 			zap.String("dnsName", record.Name),
@@ -442,16 +501,16 @@ func (p *MyraSecDNSProvider) formatRecordValue(value, recordType string) string 
 	return value
 }
 
-// ensureFullDNSName appends p.domainName if the dnsName is missing it.
-func (p *MyraSecDNSProvider) ensureFullDNSName(dnsName string) string {
-	if p.domainName == "" {
+// ensureFullDNSName appends the domain name if the dnsName is missing it.
+func ensureFullDNSName(dnsName, domainName string) string {
+	if domainName == "" {
 		return dnsName
 	}
 	// If it already ends with the domainName, skip
-	if strings.HasSuffix(dnsName, p.domainName) {
+	if strings.HasSuffix(dnsName, domainName) {
 		return dnsName
 	}
-	return dnsName + "." + p.domainName
+	return dnsName + "." + domainName
 }
 
 // supportedRecordType returns true if the record type is supported by ExternalDNS.

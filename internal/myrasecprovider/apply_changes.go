@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
+	myrasec "github.com/Myra-Security-GmbH/myrasec-go/v2"
 	"go.uber.org/zap"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
@@ -37,44 +39,75 @@ func (p *MyraSecDNSProvider) ApplyChangesWithWorkers(ctx context.Context, change
 		return nil
 	}
 
-	// Ensure we have a domain selected
-	selectedDomain, err := p.SelectDomain()
+	// Ensure we have domains selected
+	domains, err := p.SelectDomains()
 	if err != nil {
-		p.logger.Error("Failed to select domain", zap.Error(err))
+		p.logger.Error("Failed to select domains", zap.Error(err))
 		return err
 	}
 
-	p.logger.Debug("Selected domain for ApplyChangesWithWorkers method",
-		zap.String("domain_name", selectedDomain.Name),
-		zap.Int("domain_id", selectedDomain.ID))
+	p.logger.Debug("Selected domains for ApplyChangesWithWorkers method",
+		zap.Int("count", len(domains)))
 
-	// Set the domain name for use in worker processes
-	p.domainName = selectedDomain.Name
-
-	// Build tasks for all changes
+	// Build tasks for all changes, routing each endpoint to its domain
 	var tasks []changeTask
+
+	addTask := func(action string, ep, oldEp *endpoint.Endpoint) {
+		domain, ok := domainForEndpoint(domains, ep.DNSName)
+		if !ok {
+			p.logger.Error("Endpoint does not belong to any selected domain, skipping",
+				zap.String("action", action),
+				zap.String("dnsName", ep.DNSName),
+				zap.String("recordType", ep.RecordType))
+			return
+		}
+		tasks = append(tasks, changeTask{action: action, change: ep, oldChange: oldEp, domain: domain})
+	}
 
 	// Add creation tasks
 	for _, endpoint := range changes.Create {
-		tasks = append(tasks, changeTask{action: CREATE, change: endpoint})
+		addTask(CREATE, endpoint, nil)
 	}
 
 	// Add update tasks
 	for i, endpoint := range changes.UpdateNew {
-		tasks = append(tasks, changeTask{
-			action:    UPDATE,
-			change:    endpoint,
-			oldChange: changes.UpdateOld[i],
-		})
+		addTask(UPDATE, endpoint, changes.UpdateOld[i])
 	}
 
 	// Add deletion tasks
 	for _, endpoint := range changes.Delete {
-		tasks = append(tasks, changeTask{action: DELETE, change: endpoint})
+		addTask(DELETE, endpoint, nil)
 	}
 
 	// Process all tasks with workers
 	return p.processTasksWithWorkers(ctx, tasks)
+}
+
+// domainForEndpoint returns the selected domain responsible for the given DNS
+// name, preferring the longest matching domain suffix. If the name matches
+// none of the selected domains but exactly one domain is selected, that
+// domain is used as a fallback so short (non-FQDN) names keep working.
+func domainForEndpoint(domains []myrasec.Domain, dnsName string) (myrasec.Domain, bool) {
+	name := normalizeDomainName(dnsName)
+
+	var best myrasec.Domain
+	bestLen := -1
+	for _, domain := range domains {
+		domainName := normalizeDomainName(domain.Name)
+		if (name == domainName || strings.HasSuffix(name, "."+domainName)) && len(domainName) > bestLen {
+			best = domain
+			bestLen = len(domainName)
+		}
+	}
+	if bestLen >= 0 {
+		return best, true
+	}
+
+	if len(domains) == 1 {
+		return domains[0], true
+	}
+
+	return myrasec.Domain{}, false
 }
 
 // processTasksWithWorkers processes DNS record tasks using multiple worker goroutines.
@@ -123,6 +156,7 @@ func (p *MyraSecDNSProvider) processTasksWithWorkers(ctx context.Context, tasks 
 
 	// Collect results and capture first error
 	var firstErr error
+collect:
 	for i := 0; i < len(tasks); i++ {
 		select {
 		case err := <-resultChan:
@@ -131,11 +165,12 @@ func (p *MyraSecDNSProvider) processTasksWithWorkers(ctx context.Context, tasks 
 				cancel() // Cancel context to stop other workers
 			}
 		case <-ctx.Done():
-			// Context was canceled externally
+			// Context was canceled externally; stop collecting. Workers cannot
+			// block on send since resultChan is buffered to len(tasks).
 			if firstErr == nil {
 				firstErr = ctx.Err()
 			}
-			break
+			break collect
 		}
 	}
 
@@ -171,11 +206,11 @@ func (p *MyraSecDNSProvider) worker(ctx context.Context, id int, taskChan <-chan
 			var err error
 			switch task.action {
 			case CREATE:
-				err = p.processCreateActions([]*endpoint.Endpoint{task.change})
+				err = p.processCreateActions(task.domain, []*endpoint.Endpoint{task.change})
 			case UPDATE:
-				err = p.processUpdateActions([]*endpoint.Endpoint{task.oldChange}, []*endpoint.Endpoint{task.change})
+				err = p.processUpdateActions(task.domain, []*endpoint.Endpoint{task.oldChange}, []*endpoint.Endpoint{task.change})
 			case DELETE:
-				err = p.processDeleteActions([]*endpoint.Endpoint{task.change})
+				err = p.processDeleteActions(task.domain, []*endpoint.Endpoint{task.change})
 			default:
 				err = fmt.Errorf("unknown action: %s", task.action)
 			}

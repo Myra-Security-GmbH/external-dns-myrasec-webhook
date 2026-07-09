@@ -67,8 +67,6 @@ func TestApplyChangesBasic(t *testing.T) {
 		BaseProvider: provider.BaseProvider{},
 		apiClient:    mockClient,
 		logger:       zap.NewNop(),
-		domainName:   "example.com",
-		domainId:     "123",
 		dryRun:       true, // Use dry run mode to avoid actual API calls
 		owner:        "test-owner",
 	}
@@ -107,8 +105,6 @@ func TestApplyChangesError(t *testing.T) {
 		BaseProvider: provider.BaseProvider{},
 		apiClient:    mockClient,
 		logger:       zap.NewNop(),
-		domainName:   "example.com",
-		domainId:     "123",
 		dryRun:       true,
 		owner:        "test-owner",
 	}
@@ -144,8 +140,6 @@ func TestApplyChangesEmptyChanges(t *testing.T) {
 		BaseProvider: provider.BaseProvider{},
 		apiClient:    mockClient,
 		logger:       zap.NewNop(),
-		domainName:   "example.com",
-		domainId:     "123",
 		dryRun:       true,
 		owner:        "test-owner",
 	}
@@ -175,8 +169,6 @@ func TestApplyChangesUnequalUpdateSlices(t *testing.T) {
 		BaseProvider: provider.BaseProvider{},
 		apiClient:    mockClient,
 		logger:       zap.NewNop(),
-		domainName:   "example.com",
-		domainId:     "123",
 		dryRun:       true,
 		owner:        "test-owner",
 	}

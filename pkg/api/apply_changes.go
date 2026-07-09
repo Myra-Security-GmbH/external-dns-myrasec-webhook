@@ -2,13 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
 
-	"github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/errors"
+	myraerrors "github.com/Myra-Security-GmbH/external-dns-myrasec-webhook/pkg/errors"
 )
 
 func (w webhook) ApplyChanges(ctx *fiber.Ctx) error {
@@ -32,7 +33,7 @@ func (w webhook) ApplyChanges(ctx *fiber.Ctx) error {
 			w.logger.Error("Failed to parse request body as either plan.Changes or array of endpoints",
 				zap.String(logFieldError, err.Error()))
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": errors.ErrInvalidJSONFormat.Error(),
+				"error": myraerrors.ErrInvalidJSONFormat.Error(),
 			})
 		}
 
@@ -53,19 +54,19 @@ func (w webhook) ApplyChanges(ctx *fiber.Ctx) error {
 			zap.String(logFieldError, err.Error()))
 
 		switch {
-		case err == errors.ErrMissingAPIKey:
+		case errors.Is(err, myraerrors.ErrMissingAPIKey):
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "API key is required",
 			})
-		case err == errors.ErrMissingAPISecret:
+		case errors.Is(err, myraerrors.ErrMissingAPISecret):
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "API secret is required",
 			})
-		case err == errors.ErrDomainNotFound:
+		case errors.Is(err, myraerrors.ErrDomainNotFound):
 			return ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "Domain not found",
 			})
-		case err == errors.ErrAPIRequestFailed:
+		case errors.Is(err, myraerrors.ErrAPIRequestFailed):
 			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "API request to MyraSec failed",
 			})
